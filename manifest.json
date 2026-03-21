@@ -1,0 +1,10 @@
+{
+	"id": "obsidian_camera",
+	"name": "Camera",
+	"version": "1.0.0",
+	"minAppVersion": "0.14.6",
+	"description": "Camera plugin for Obsidian",
+	"author": "Eliot Huang",
+	"authorUrl": "https://github.com/gemini-hub/obsidian_camera",
+	"isDesktopOnly": false
+}
