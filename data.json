@@ -2,7 +2,7 @@
   "saveMode": "note-relative",
   "fixedFolderPath": "attachments/snaps",
   "relativeSubfolderName": "images",
-  "imageQuality": "png",
+  "imageQuality": "jpeg-low",
   "imageResolution": "original",
   "insertFormat": "wikilink"
 }
