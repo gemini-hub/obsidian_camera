@@ -161,13 +161,29 @@ export class CameraModal extends Modal {
   }
 
   // ── Save to vault ────────────────────────────────────────────────────────────
-  private async saveFile(buf: ArrayBuffer, isImage: boolean, name?: string) {
+  // preProcessed=true → 桌面拍照路径，已经过 snapCanvas 处理，跳过重新编码
+  // preProcessed=false → Android / Upload 路径，需要对原始图片做质量/分辨率处理
+  private async saveFile(buf: ArrayBuffer, isImage: boolean, name?: string, preProcessed = false) {
     const qCfg = IMAGE_QUALITY_MAP[this.settings.imageQuality];
-    const ext   = isImage ? qCfg.ext : this.videoExt();
+
+    // ── 对原始图片应用质量与分辨率设置 ──────────────────────────────────────
+    if (isImage && !preProcessed) {
+      try {
+        buf = await this.processImage(buf);
+      } catch (e) {
+        console.warn('[Camera] processImage failed, using original file:', e);
+      }
+    }
+
+    const ext = isImage ? qCfg.ext : this.videoExt();
     if (!name) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       name = isImage ? `photo_${ts}.${ext}` : `video_${ts}.${ext}`;
+    } else if (isImage) {
+      // 修正文件名扩展名，与实际编码格式保持一致（如相册选的 .jpg 转成 .png）
+      name = name.replace(/\.[^.]+$/, `.${ext}`);
     }
+
     const folder = normalizePath(this.getSavePath());
     const path   = normalizePath(`${folder}/${name}`);
     new Notice(`💾 Saving ${isImage ? 'photo' : 'video'}…`);
@@ -183,6 +199,37 @@ export class CameraModal extends Modal {
     view.editor.replaceRange(ins, view.editor.getCursor());
     new Notice(`✅ ${isImage ? 'Photo' : 'Video'} inserted`);
     this.close();
+  }
+
+  // ── 对原始图片 ArrayBuffer 应用质量和分辨率设置 ──────────────────────────
+  // 用 Image → Canvas → toBlob 重新编码，支持缩放和格式转换
+  private processImage(buf: ArrayBuffer): Promise<ArrayBuffer> {
+    const qCfg   = IMAGE_QUALITY_MAP[this.settings.imageQuality];
+    const resCfg = IMAGE_RESOLUTION_MAP[this.settings.imageResolution];
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([buf]);
+      const url  = URL.createObjectURL(blob);
+      const img  = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        // 按分辨率设置等比缩放
+        if (resCfg.maxWidth > 0 && w > resCfg.maxWidth) {
+          h = Math.round(h * resCfg.maxWidth / w);
+          w = resCfg.maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(async (outBlob) => {
+          if (!outBlob) { reject(new Error('canvas.toBlob returned null')); return; }
+          resolve(await outBlob.arrayBuffer());
+        }, qCfg.mimeType, qCfg.quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
+      img.src = url;
+    });
   }
 
   // ── MIME helpers ─────────────────────────────────────────────────────────────
@@ -295,7 +342,8 @@ export class CameraModal extends Modal {
       const qCfg = IMAGE_QUALITY_MAP[this.settings.imageQuality];
       this.snapCanvas(vid).toBlob(async blob => {
         if (!blob) return;
-        this.saveFile(await blob.arrayBuffer(), true);
+        // preProcessed=true：snapCanvas 已完成缩放和格式/质量编码，无需再处理
+        this.saveFile(await blob.arrayBuffer(), true, undefined, true);
       }, qCfg.mimeType, qCfg.quality);
     };
 
